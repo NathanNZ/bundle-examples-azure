@@ -27,7 +27,7 @@ targets:
         development_cluster:
           cluster_name: Development cluster
           spark_version: 15.4.x-scala2.12
-          node_type_id: i3.xlarge
+          node_type_id: Standard_D4ads_v5
           num_workers: 0
           autotermination_minutes: 30
           spark_conf:

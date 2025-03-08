@@ -15,7 +15,7 @@ resources:
         - job_cluster_key: {{.project_name}}_job_cluster
           new_cluster:
             spark_version: {{template `dbr_version` .}}.x-scala{{template `scala_major_minor_version` .}}
-            node_type_id: i3.xlarge  # Default instance type (can be changed)
+            node_type_id: Standard_D4ads_v5  # Default instance type (can be changed)
             autoscale:
               min_workers: 1
               max_workers: 4
