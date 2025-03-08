@@ -14,8 +14,6 @@ targets:
     # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
     mode: development
     default: true
-    workspace:
-      host: https://company.databricks.com
 
   prod:
     mode: production
