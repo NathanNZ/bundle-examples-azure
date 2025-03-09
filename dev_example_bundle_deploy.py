@@ -1,32 +1,47 @@
 # Databricks notebook source
-# DBTITLE 1,Development Bundle Deploy
-import os
+# DBTITLE 1,Widgets, imports and sanity check
+import os, subprocess
 import json
-import subprocess
 from py4j.protocol import Py4JError
+import urllib.request, zipfile
 
-dbutils.widgets.text("path_to_bundle", "./default_python")
-dbutils.widgets.dropdown("bundle_action", "validate", ["deploy", "destroy", "validate"])
+dbutils.widgets.text("path_to_bundle", "./default_python", label="Path to Bundle")
+dbutils.widgets.text("databricks_cli_version", "0.243.0", label="Databricks CLI Version (refer to https://github.com/databricks/cli/releases)")
+dbutils.widgets.dropdown("bundle_action", "validate", ["deploy", "destroy", "validate"], label="Databricks Asset Bundle Action")
+dbutils.widgets.dropdown("bundle_auto_approve_deletes", "true", ["true", "false"], label="Auto Approve Deletes (when using destroy)")
+
 path_to_bundle = dbutils.widgets.get("path_to_bundle")
 bundle_action = dbutils.widgets.get("bundle_action")
+databricks_cli_version = dbutils.widgets.get("databricks_cli_version")
+bundle_auto_approve_deletes = dbutils.widgets.get("bundle_auto_approve_deletes") == "true"
 
 try:
     context = json.loads(dbutils.entry_point.getDbutils().notebook().getContext().toJson())
 except Py4JError as e:
     raise Exception("This notebook is only supported on single user 'Dedicated' clusters such as personal compute.")
 
+# COMMAND ----------
+
+# DBTITLE 1,Install the Databricks CLI
+databricks_cli_root = f"/local_disk0/databricks_{databricks_cli_version}/"
+databricks_cli_path = f"{databricks_cli_root}/databricks"
+
+# Download the Databricks CLI if it doesn't exist already.
+if not os.path.exists(databricks_cli_path):
+    print(f"Installing Databricks CLI {databricks_cli_version}...")
+    url = f"https://github.com/databricks/cli/releases/download/v{databricks_cli_version}/databricks_cli_{databricks_cli_version}_linux_amd64.zip"
+    zip_path = f"{databricks_cli_root}/databricks_cli.zip"
+    os.makedirs(databricks_cli_root, exist_ok=True)
+    urllib.request.urlretrieve(url, zip_path)
+    subprocess.run(["unzip", zip_path, "-d", databricks_cli_root], check=True)
+
+# COMMAND ----------
+
+# DBTITLE 1,Development Bundle Deploy
 databricks_env = os.environ.copy()
-# Note that if you have a airgapped Databricks instance you may want to reference a volume with the Databricks CLI on it
-# This method uses the built in helper scripts intended for the use in the Databricks Web Terminal.
-databricks_env["ENABLE_DATABRICKS_CLI"] = "true"
 databricks_env["DATABRICKS_TOKEN"] = context["extraContext"]["api_token"]
 databricks_env["DATABRICKS_HOST"] = context["tags"]["browserHostName"]
-
-# This should never be any production environment. 
-# This notebook serves only to support developers in releasing bundles within the same coding loop of updating notebooks/YAML files within Databricks Workspaces.
-environment = "dev"
-
-result = subprocess.run(["databricks", "version"], cwd=path_to_bundle, env=databricks_env)
+result = subprocess.run([databricks_cli_path, "version"], cwd=path_to_bundle, env=databricks_env)
 
 if result.returncode != 0:
     raise Exception("We were unable to run the Databricks CLI, are you running in single user mode and have direct access Github releases to download the Databricks CLI?")
@@ -34,7 +49,9 @@ if result.returncode != 0:
 # We're only deploying development here, as this script is not supported in production.
 # Consider using CI/CD bundles if you want to depend on this method working consistently.
 # https://learn.microsoft.com/en-us/azure/databricks/dev-tools/bundles/ci-cd-bundles
-result = subprocess.run(["databricks", "bundle", bundle_action, "-t", environment],
+environment = "dev"
+databricks_cli_commands = [databricks_cli_path, "bundle", bundle_action, "-t", environment, ] + (["--auto-approve"] if bundle_auto_approve_deletes else [])
+result = subprocess.run(databricks_cli_commands,
                          cwd=path_to_bundle, env=databricks_env)
 
 if result.returncode != 0:
