@@ -16,6 +16,8 @@ except Py4JError as e:
     raise Exception("This notebook is only supported on single user 'Dedicated' clusters such as personal compute.")
 
 databricks_env = os.environ.copy()
+# Note that if you have a airgapped Databricks instance you may want to reference a volume with the Databricks CLI on it
+# This method uses the built in helper scripts intended for the use in the Databricks Web Terminal.
 databricks_env["ENABLE_DATABRICKS_CLI"] = "true"
 databricks_env["DATABRICKS_TOKEN"] = context["extraContext"]["api_token"]
 databricks_env["DATABRICKS_HOST"] = context["tags"]["browserHostName"]
