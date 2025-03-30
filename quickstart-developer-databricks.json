@@ -12,7 +12,7 @@
         },
         "vnetRG": {
             "type": "string",
-            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-vnet')]"
+            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-rg')]"
         },
         "enableNatGateway": {
             "type": "bool",
