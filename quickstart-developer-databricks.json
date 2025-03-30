@@ -1,0 +1,645 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "defaultDataPlatformPrefix": {
+            "type": "string",
+            "defaultValue": "dev-adb"
+        },
+        "defaultNetworkPrefix": {
+            "type": "string",
+            "defaultValue": "dev-dataai-network"
+        },
+        "vnetRG": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-vnet')]"
+        },
+        "enableNatGateway": {
+            "type": "bool",
+            "defaultValue": false
+        },
+        "enableDemoStoragePrivateEndpoints": {
+            "type": "bool",
+            "defaultValue": false
+        },
+        "vnetCIDR": {
+            "type": "string",
+            "defaultValue": "10.42.0.0/20"
+        },
+        "publicSubnetCIDR": {
+            "type": "string",
+            "defaultValue": "10.42.0.0/23"
+        },
+        "privateSubnetCIDR": {
+            "type": "string",
+            "defaultValue": "10.42.2.0/23"
+        },
+        "privateEndpointsSubnetCIDR": {
+            "type": "string",
+            "defaultValue": "10.42.4.0/24"
+        },
+        "managedResourceGroupName": {
+            "defaultValue": "[concat(parameters('workspaceName'), '-mrg')]",
+            "type": "string"
+        },
+        "workspaceName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultDataPlatformPrefix'), '-dbw')]"
+        },
+        "workspaceStorageAccessConnectorName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultDataPlatformPrefix'), '-dbw-st-dbac')]"
+        },
+        "workspaceStorageAccountSkuName": {
+            "type": "string",
+            "defaultValue": "Standard_LRS"
+        },
+        "nsgName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultDataPlatformPrefix'), '-nsg')]"
+        },
+        "vnetName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-vnet')]"
+        },
+        "publicSubnetName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-host-subnet')]"
+        },
+        "privateSubnetName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-container-subnet')]"
+        },
+        "privateEndpointSubnetName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultNetworkPrefix'), '-private-endpoints-subnet')]"
+        },
+        "workspaceStorageAccountName": {
+            "type": "string",
+            "defaultValue": "[concat(replace(parameters('defaultDataPlatformPrefix'), '-', ''), 'dbwst')]"
+        },
+        "unityStorageAccountName": {
+            "type": "string",
+            "defaultValue": "[concat(replace(parameters('defaultDataPlatformPrefix'), '-', ''), 'unityst')]"
+        },
+        "natGatewayName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultDataPlatformPrefix'), '-ng')]"
+        },
+        "publicIpName": {
+            "type": "string",
+            "defaultValue": "[concat(parameters('defaultDataPlatformPrefix'), '-ng-pip')]"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]"
+        }
+    },
+    "variables": {
+        "dataResourceGroupName": "[resourceGroup().name]",
+        "managedResourceGroupName": "[if(not(empty(parameters('managedResourceGroupName'))), parameters('managedResourceGroupName'), concat('databricks-rg-', parameters('workspaceName'), '-', uniqueString(parameters('workspaceName'), resourceGroup().id)))]",
+        "trimmedMRGName": "[substring(variables('managedResourceGroupName'), 0, min(length(variables('managedResourceGroupName')), 90))]",
+        "managedResourceGroupId": "[concat(subscription().id, '/resourceGroups/', variables('trimmedMRGName'))]",
+        "nsgId": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', parameters('vnetRG'), '/providers/Microsoft.Network/networkSecurityGroups/', parameters('nsgName'))]",
+        "vnetId": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', parameters('vnetRG'), '/providers/Microsoft.Network/virtualNetworks/', parameters('vnetName'))]",
+        "publicSubnetId": "[concat(variables('vnetId'), '/subnets/', parameters('publicSubnetName'))]",
+        "privateSubnetId": "[concat(variables('vnetId'), '/subnets/', parameters('privateSubnetName'))]",
+        "privateBlobDnsStorageZoneName": "privatelink.blob.core.windows.net",
+        "privateDFSDnsStorageZoneName": "privatelink.dfs.core.windows.net"
+    },
+    "resources": [
+        {
+            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+            "type": "Microsoft.Databricks/workspaces",
+            "apiVersion": "2024-09-01-preview",
+            "name": "[parameters('workspaceName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "['Microsoft.Resources/deployments/nestedTemplateNsg']",
+                "['Microsoft.Resources/deployments/nestedTemplateNetworking']"
+            ],
+            "sku": {
+                "name": "premium"
+            },
+            "properties": {
+                "defaultStorageFirewall": "[if(parameters('enableDemoStoragePrivateEndpoints'), 'Enabled', 'Disabled')]",
+                "accessConnector": "[if(parameters('enableDemoStoragePrivateEndpoints'), createObject('id', resourceId('Microsoft.Databricks/accessConnectors', parameters('workspaceStorageAccessConnectorName')), 'identityType', 'SystemAssigned'), json('null'))]",
+                "managedResourceGroupId": "[variables('managedResourceGroupId')]",
+                "parameters": {
+                    "enableNoPublicIp": {
+                        "value": true
+                    },
+                    "storageAccountSkuName": {
+                        "value": "[parameters('workspaceStorageAccountSkuName')]"
+                    },
+                    "storageAccountName": {
+                        "value": "[parameters('workspaceStorageAccountName')]"
+                    },
+                    "customVirtualNetworkId": {
+                        "value": "[variables('vnetId')]"
+                    },
+                    "customPublicSubnetName": {
+                        "value": "[parameters('publicSubnetName')]"
+                    },
+                    "customPrivateSubnetName": {
+                        "value": "[parameters('privateSubnetName')]"
+                    }
+                },
+                "defaultCatalog": {
+                    "initialType": "UnityCatalog",
+                    "initialName": ""
+                },
+                "publicNetworkAccess": "Enabled",
+                "requiredNsgRules": "AllRules"
+            }
+        },
+        {
+            "condition": "[not(parameters('enableDemoStoragePrivateEndpoints'))]",
+            "type": "Microsoft.Databricks/workspaces",
+            "apiVersion": "2024-09-01-preview",
+            "name": "[parameters('workspaceName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "['Microsoft.Resources/deployments/nestedTemplateNsg']",
+                "['Microsoft.Resources/deployments/nestedTemplateNetworking']"
+            ],
+            "sku": {
+                "name": "premium"
+            },
+            "properties": {
+                "managedResourceGroupId": "[variables('managedResourceGroupId')]",
+                "parameters": {
+                    "enableNoPublicIp": {
+                        "value": true
+                    },
+                    "storageAccountSkuName": {
+                        "value": "[parameters('workspaceStorageAccountSkuName')]"
+                    },
+                    "storageAccountName": {
+                        "value": "[parameters('workspaceStorageAccountName')]"
+                    },
+                    "customVirtualNetworkId": {
+                        "value": "[variables('vnetId')]"
+                    },
+                    "customPublicSubnetName": {
+                        "value": "[parameters('publicSubnetName')]"
+                    },
+                    "customPrivateSubnetName": {
+                        "value": "[parameters('privateSubnetName')]"
+                    }
+                },
+                "defaultCatalog": {
+                    "initialType": "UnityCatalog",
+                    "initialName": ""
+                },
+                "publicNetworkAccess": "Enabled",
+                "requiredNsgRules": "AllRules"
+            }
+        },
+        {
+            "type": "Microsoft.Databricks/accessConnectors",
+            "apiVersion": "2024-09-01-preview",
+            "name": "[parameters('workspaceStorageAccessConnectorName')]",
+            "location": "[parameters('location')]",
+            "identity": {
+                "type": "SystemAssigned"
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2024-01-01",
+            "name": "[parameters('unityStorageAccountName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "[parameters('workspaceStorageAccountSkuName')]"
+            },
+            "dependsOn": [
+                "['Microsoft.Resources/deployments/nestedTemplateNsg']",
+                "['Microsoft.Resources/deployments/nestedTemplateNetworking']",
+                "[resourceId('Microsoft.Databricks/accessConnectors', parameters('workspaceStorageAccessConnectorName'))]"
+            ],
+            "kind": "StorageV2",
+            "properties": {
+                "minimumTlsVersion": "TLS1_2",
+                "isHnsEnabled": true,
+                "allowSharedKeyAccess": false,
+                "defaultToOAuthAuthentication": true,
+                "accessTier": "Hot",
+                "allowedCopyScope": "AAD",
+                "dnsEndpointType": "Standard",
+                "networkAcls": {
+                    "resourceAccessRules": [
+                        {
+                            "tenantId": "[tenant().tenantId]",
+                            "resourceId": "[resourceId('Microsoft.Databricks/accessConnectors', parameters('workspaceStorageAccessConnectorName'))]"
+                        }
+                    ],
+                    "bypass": "AzureServices",
+                    "defaultAction": "Deny",
+                    "ipRules": [],
+                    "virtualNetworkRules": [
+                        {
+                            "id": "[variables('publicSubnetId')]",
+                            "action": "Allow"
+                        },
+                        {
+                            "id": "[variables('privateSubnetId')]",
+                            "action": "Allow"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+            "apiVersion": "2022-09-01",
+            "name": "[concat(parameters('unityStorageAccountName'), '/default/unity')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('unityStorageAccountName'))]"
+            ],
+            "properties": {
+                "publicAccess": "None"
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', parameters('unityStorageAccountName'), 'default', 'unity'), 'StorageBlobDataContributorAccessConnector')]",
+            "dependsOn": [
+                "[concat('Microsoft.Storage/storageAccounts/', parameters('unityStorageAccountName'), '/blobServices/default/containers/unity')]",
+                "[resourceId('Microsoft.Databricks/accessConnectors', parameters('workspaceStorageAccessConnectorName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+                "principalId": "[reference(resourceId('Microsoft.Databricks/accessConnectors', parameters('workspaceStorageAccessConnectorName')), '2024-09-01-preview', 'full').identity.principalId]"
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2024-11-01",
+            "name": "nestedTemplateNsg",
+            "properties": {
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {},
+                    "resources": [
+                        {
+                            "apiVersion": "2019-06-01",
+                            "type": "Microsoft.Network/networkSecurityGroups",
+                            "location": "[parameters('location')]",
+                            "name": "[parameters('nsgName')]"
+                        }
+                    ]
+                }
+            },
+            "resourceGroup": "[parameters('vnetRG')]"
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2024-11-01",
+            "name": "nestedTemplateNetworking",
+            "dependsOn": [
+                "['Microsoft.Resources/deployments/nestedTemplateNsg']"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {},
+                    "resources": [
+                        {
+                            "apiVersion": "2024-05-01",
+                            "type": "Microsoft.Network/virtualNetworks",
+                            "name": "[parameters('vnetName')]",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "addressSpace": {
+                                    "addressPrefixes": [
+                                        "[parameters('vnetCIDR')]"
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "apiVersion": "2024-05-01",
+                            "type": "Microsoft.Network/publicIPAddresses",
+                            "name": "[parameters('publicIpName')]",
+                            "location": "[parameters('location')]",
+                            "condition": "[parameters('enableNatGateway')]",
+                            "properties": {
+                                "publicIPAllocationMethod": "Static",
+                                "sku": {
+                                    "name": "Standard"
+                                }
+                            }
+                        },
+                        {
+                            "apiVersion": "2024-01-01",
+                            "type": "Microsoft.Network/natGateways",
+                            "name": "[parameters('natGatewayName')]",
+                            "location": "[parameters('location')]",
+                            "condition": "[parameters('enableNatGateway')]",
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]"
+                            ],
+                            "properties": {
+                                "publicIpAddresses": [
+                                    {
+                                        "id": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]"
+                                    }
+                                ],
+                                "idleTimeoutInMinutes": 4
+                            }
+                        },
+                        {
+                            "apiVersion": "2019-06-01",
+                            "type": "Microsoft.Network/virtualNetworks/subnets",
+                            "name": "[concat(parameters('vnetName'), '/', parameters('publicSubnetName'))]",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "serviceEndpoints": [
+                                    {
+                                      "service": "Microsoft.Storage"
+                                    }
+                                ],
+                                "addressPrefix": "[parameters('publicSubnetCIDR')]",
+                                "networkSecurityGroup": {
+                                    "id": "[variables('nsgId')]"
+                                },
+                                "natGateway": "[if(parameters('enableNatGateway'), createObject('id', concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Network/natGateways/', parameters('natGatewayName'))), json('null'))]",
+                                "delegations": [
+                                    {
+                                        "name": "[concat('databricks-del-', uniqueString(parameters('publicSubnetName')))]",
+                                        "properties": {
+                                            "serviceName": "Microsoft.Databricks/workspaces"
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[concat('Microsoft.Network/virtualNetworks/', parameters('vnetName'))]"
+                            ]
+                        },
+                        {
+                            "apiVersion": "2019-06-01",
+                            "type": "Microsoft.Network/virtualNetworks/subnets",
+                            "name": "[concat(parameters('vnetName'), '/', parameters('privateSubnetName'))]",
+                            "location": "[parameters('location')]",
+                            "dependsOn": [
+                                "[concat('Microsoft.Network/virtualNetworks/', parameters('vnetName'), '/subnets/', parameters('publicSubnetName'))]",
+                                "[concat('Microsoft.Network/virtualNetworks/', parameters('vnetName'))]"
+                            ],
+                            "properties": {
+                                "serviceEndpoints": [
+                                    {
+                                      "service": "Microsoft.Storage"
+                                    }
+                                ],
+                                "addressPrefix": "[parameters('privateSubnetCIDR')]",
+                                "natGateway": "[if(parameters('enableNatGateway'), createObject('id', concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Network/natGateways/', parameters('natGatewayName'))), json('null'))]",
+                                "networkSecurityGroup": {
+                                    "id": "[variables('nsgId')]"
+                                },
+                                "delegations": [
+                                    {
+                                        "name": "[concat('databricks-del-', uniqueString(parameters('privateSubnetName')))]",
+                                        "properties": {
+                                            "serviceName": "Microsoft.Databricks/workspaces"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints",
+                            "apiVersion": "2021-08-01",
+                            "name": "dbw-st-dfs-pe",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "subnet": {
+                                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+                                },
+                                "privateLinkServiceConnections": [
+                                    {
+                                        "name": "workspaceStorageConnection",
+                                        "properties": {
+                                            "privateLinkServiceId":  "[resourceId(subscription().subscriptionId, variables('trimmedMRGName'), 'Microsoft.Storage/storageAccounts', parameters('workspaceStorageAccountName'))]",
+                                            "groupIds": [
+                                                "dfs"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId(subscription().subscriptionId, variables('trimmedMRGName'), 'Microsoft.Storage/storageAccounts', parameters('workspaceStorageAccountName'))]"
+                            ]
+                        },                     
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints",
+                            "apiVersion": "2021-08-01",
+                            "name": "dbw-st-blob-pe",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "subnet": {
+                                    "id": "[resourceId(subscription().subscriptionId, 'Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+                                },
+                                "privateLinkServiceConnections": [
+                                    {
+                                        "name": "workspaceStorageConnection",
+                                        "properties": {
+                                            "privateLinkServiceId": "[resourceId(subscription().subscriptionId, variables('trimmedMRGName'), 'Microsoft.Storage/storageAccounts', parameters('workspaceStorageAccountName'))]",
+                                            "groupIds": [
+                                                "blob"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId(subscription().subscriptionId, variables('trimmedMRGName'), 'Microsoft.Storage/storageAccounts', parameters('workspaceStorageAccountName'))]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints",
+                            "apiVersion": "2021-08-01",
+                            "name": "unity-st-dfs-pe",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "subnet": {
+                                    "id": "[resourceId(subscription().subscriptionId, 'Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+                                },
+                                "privateLinkServiceConnections": [
+                                    {
+                                        "name": "unityStorageConnection",
+                                        "properties": {
+                                            "privateLinkServiceId": "[resourceId(subscription().subscriptionId, variables('dataResourceGroupName'), 'Microsoft.Storage/storageAccounts', parameters('unityStorageAccountName'))]",
+                                            "groupIds": [
+                                                "dfs"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId(subscription().subscriptionId, variables('dataResourceGroupName'), 'Microsoft.Storage/storageAccounts', parameters('unityStorageAccountName'))]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints",
+                            "apiVersion": "2021-08-01",
+                            "name": "unity-st-blob-pe",
+                            "location": "[parameters('location')]",
+                            "properties": {
+                                "subnet": {
+                                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+                                },
+                                "privateLinkServiceConnections": [
+                                    {
+                                        "name": "unityStorageConnection",
+                                        "properties": {
+                                            "privateLinkServiceId": "[resourceId(subscription().subscriptionId, variables('dataResourceGroupName'), 'Microsoft.Storage/storageAccounts', parameters('unityStorageAccountName'))]",
+                                            "groupIds": [
+                                                "blob"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId(subscription().subscriptionId, variables('dataResourceGroupName'), 'Microsoft.Storage/storageAccounts', parameters('unityStorageAccountName'))]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateDnsZones",
+                            "apiVersion": "2020-06-01",
+                            "name": "[variables('privateBlobDnsStorageZoneName')]",
+                            "location": "global",
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'dbw-st-blob-pe')]",
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'unity-st-blob-pe')]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateDnsZones",
+                            "apiVersion": "2020-06-01",
+                            "name": "[variables('privateDFSDnsStorageZoneName')]",
+                            "location": "global",
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'dbw-st-dfs-pe')]",
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'unity-st-dfs-pe')]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+                            "apiVersion": "2020-06-01",
+                            "name": "[format('{0}/{1}', variables('privateBlobDnsStorageZoneName'), format('{0}-link', variables('privateBlobDnsStorageZoneName')))]",
+                            "location": "global",
+                            "properties": {
+                                "registrationEnabled": false,
+                                "virtualNetwork": {
+                                    "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+                                }
+                            },
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateDnsZones', variables('privateBlobDnsStorageZoneName'))]",
+                                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+                            "apiVersion": "2021-12-01",
+                            "name": "[concat('dbw-st-blob-pe','/customdnsgroup')]",
+                            "properties": {
+                                "privateDnsZoneConfigs": [
+                                    {
+                                        "name": "config1",
+                                        "properties": {
+                                            "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateBlobDnsStorageZoneName'))]"
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateDnsZones', variables('privateBlobDnsStorageZoneName'))]",
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'dbw-st-blob-pe')]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+                            "apiVersion": "2021-12-01",
+                            "name": "[concat('unity-st-blob-pe','/customdnsgroup')]",
+                            "properties": {
+                                "privateDnsZoneConfigs": [
+                                    {
+                                        "name": "config1",
+                                        "properties": {
+                                            "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateBlobDnsStorageZoneName'))]"
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateDnsZones', variables('privateBlobDnsStorageZoneName'))]",
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'unity-st-blob-pe')]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+                            "apiVersion": "2021-12-01",
+                            "name": "[concat('dbw-st-dfs-pe','/customdnsgroup')]",
+                            "properties": {
+                                "privateDnsZoneConfigs": [
+                                    {
+                                        "name": "config1",
+                                        "properties": {
+                                            "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDFSDnsStorageZoneName'))]"
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDFSDnsStorageZoneName'))]",
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'dbw-st-dfs-pe')]"
+                            ]
+                        },
+                        {
+                            "condition": "[parameters('enableDemoStoragePrivateEndpoints')]",
+                            "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+                            "apiVersion": "2021-12-01",
+                            "name": "[concat('unity-st-dfs-pe','/customdnsgroup')]",
+                            "properties": {
+                                "privateDnsZoneConfigs": [
+                                    {
+                                        "name": "config1",
+                                        "properties": {
+                                            "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDFSDnsStorageZoneName'))]"
+                                        }
+                                    }
+                                ]
+                            },
+                            "dependsOn": [
+                                "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDFSDnsStorageZoneName'))]",
+                                "[resourceId('Microsoft.Network/privateEndpoints', 'unity-st-dfs-pe')]"
+                            ]
+                        }
+                    ]
+                }
+            },
+            "resourceGroup": "[parameters('vnetRG')]"
+        }
+    ]
+}
