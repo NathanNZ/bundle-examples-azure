@@ -1,0 +1,33 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	"name": "Python 3",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"features": {},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"databricks.databricks",
+				"databricks.sqltools-databricks-driver"
+			]
+		}
+	},
+	"mounts": [		
+		"source=${localWorkspaceFolderBasename}-home,target=/home/vscode,type=volume"
+	],
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"portsAttributes": {
+		"8020": {
+			"label": "Databricks OAuth U2M Authentication Port",
+			"onAutoForward": "silent"
+		}
+	},
+	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+	"workspaceMount": "source=${localWorkspaceFolderBasename},target=/workspaces/${localWorkspaceFolderBasename},type=volume",
+	"postCreateCommand": "sudo chown -R vscode:vscode /home/vscode && sudo chown -R vscode:vscode /workspaces/${localWorkspaceFolderBasename}"
+	// Configure tool-specific properties.
+	// "customizations": {}
+}
