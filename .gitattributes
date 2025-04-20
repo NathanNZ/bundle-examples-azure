@@ -1,0 +1,2 @@
+# When using devcontainers it's helpful to ensure we use Linux line endings
+* text eol=lf
