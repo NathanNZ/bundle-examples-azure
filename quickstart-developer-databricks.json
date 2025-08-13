@@ -127,7 +127,7 @@
                 "managedResourceGroupId": "[variables('managedResourceGroupId')]",
                 "parameters": {
                     "enableNoPublicIp": {
-                        "value": true
+                        "value": false
                     },
                     "storageAccountSkuName": {
                         "value": "[parameters('workspaceStorageAccountSkuName')]"
